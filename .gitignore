@@ -1,0 +1,12 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Environment & secrets
+.env
+
+# macOS
+.DS_Store
+PLAN.md # optional
+PLAN.md
