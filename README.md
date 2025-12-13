@@ -23,6 +23,7 @@ Edit `.env` with your keys and preferences:
 - Email: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM`, `EMAIL_TO`
 - Optional: `MAX_LISTINGS` cap (default 50)
 - Optional: `CAR_SEARCH_YEARS` to override year filtering with a comma list (e.g., `2020,2021,2022`). By default the script builds an explicit comma list from `MIN_YEAR` to current year to avoid range parsing quirks.
+- Optional Supabase ingestion: set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_TABLE` (default `passport_listings`) to upsert daily results for trend tracking.
 
 ## Run Once (manual)
 ```bash

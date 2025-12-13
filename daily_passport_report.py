@@ -41,6 +41,11 @@ RADIUS_MILES = int(os.environ.get("CAR_SEARCH_RADIUS_MILES", "100"))
 # MarketCheck free plan often caps radius at 100 miles; enforce a max to avoid 422 errors.
 MAX_RADIUS_ALLOWED = 100
 
+# Supabase (optional; when set, listings will be upserted)
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
+SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+SUPABASE_TABLE = os.environ.get("SUPABASE_TABLE", "passport_listings")
+
 # Email configuration – works with any SMTP provider
 SMTP_HOST = os.environ.get("SMTP_HOST", "").strip()
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
@@ -189,6 +194,16 @@ def extract_listing_row(listing: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def parse_kilometers_value(miles_value: Optional[float]) -> Optional[int]:
+    if miles_value is None:
+        return None
+    try:
+        km = float(miles_value) * 1.60934
+        return int(km)
+    except (TypeError, ValueError):
+        return None
+
+
 def render_html_table(listings: List[Dict[str, Any]]) -> str:
     """
     Render listings as a basic HTML table suitable for email.
@@ -275,6 +290,69 @@ def send_email(subject: str, html_body: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Supabase ingestion
+# ---------------------------------------------------------------------------
+
+def upsert_to_supabase(listings: List[Dict[str, Any]], fetched_date: str) -> int:
+    """
+    Upsert listings into Supabase via PostgREST.
+    Assumes a unique index on coalesce(vin, source_id), fetched_at.
+    """
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        return 0
+
+    rows: List[Dict[str, Any]] = []
+    currency = "CAD" if COUNTRY.upper() == "CA" else "USD"
+
+    for raw in listings:
+        row = extract_listing_row(raw)
+        miles_value = raw.get("miles") or raw.get("odometer")
+        km_value = parse_kilometers_value(miles_value)
+
+        rows.append(
+            {
+                "vin": raw.get("vin"),
+                "source_id": raw.get("id") or raw.get("listing_id"),
+                "listing_url": row["vdp_url"],
+                "year": row["year"],
+                "price": raw.get("price") or raw.get("current_price"),
+                "km": km_value,
+                "trim": row["trim"],
+                "body": row["body_type"],
+                "exterior": row["ext_color"],
+                "interior": row["int_color"],
+                "dealer_name": row["dealer_name"],
+                "dealer_city": row["dealer_city"],
+                "dealer_state": row["dealer_state"],
+                "postal": raw.get("zip") or raw.get("postal"),
+                "currency": currency,
+                "fetched_at": fetched_date,
+            }
+        )
+
+    if not rows:
+        return 0
+
+    headers = {
+        "apikey": SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "resolution=merge-duplicates,return=minimal",
+    }
+
+    resp = requests.post(
+        f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}",
+        json=rows,
+        headers=headers,
+        timeout=30,
+    )
+    if resp.status_code not in (200, 201, 204):
+        raise RuntimeError(f"Supabase upsert failed {resp.status_code}: {resp.text[:500]}")
+
+    return len(rows)
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -307,6 +385,14 @@ def main() -> int:
   </body>
 </html>
 """
+
+    # Optional: upsert to Supabase for historical trend tracking
+    if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
+        try:
+            ingested = upsert_to_supabase(listings, today)
+            print(f"Upserted {ingested} rows to Supabase", file=sys.stderr)
+        except Exception as exc:
+            print(f"Failed to upsert to Supabase: {exc}", file=sys.stderr)
 
     try:
         send_email(subject=f"[Car Report] Used Honda Passport listings ({today})", html_body=html_body)
