@@ -38,6 +38,7 @@ python daily_passport_report.py
 
 ## Behavior
 - Fetches active used listings filtered to Honda Passport, year >= 2020 (adjust in script if needed).
+- Excludes Sport and TrailSport trims from the report.
 - Builds an HTML table (year, price, kilometers, trim, body, colors, dealer info, link).
 - Sends HTML email via SMTP (STARTTLS on 587 by default; SSL on 465 if configured).
 - On API error: sends an error email when SMTP is configured, otherwise logs to stderr.

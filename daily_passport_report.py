@@ -57,6 +57,9 @@ EMAIL_TO = os.environ.get("EMAIL_TO", SMTP_USER)
 
 MAX_LISTINGS = int(os.environ.get("MAX_LISTINGS", "50"))
 
+# Trim filtering
+EXCLUDED_TRIMS = {"sport", "trailsport"}
+
 
 # ---------------------------------------------------------------------------
 # MarketCheck client
@@ -258,6 +261,19 @@ def render_html_table(listings: List[Dict[str, Any]]) -> str:
     return table
 
 
+def is_excluded_trim(listing: Dict[str, Any]) -> bool:
+    """
+    Exclude trims like Sport and TrailSport from the report.
+    """
+    build = listing.get("build", {}) or {}
+    trim = (build.get("trim") or "").strip().lower()
+    if not trim:
+        return False
+
+    normalized = "".join(ch for ch in trim if ch.isalnum())
+    return normalized.startswith("sport") or normalized.startswith("trailsport") or normalized in EXCLUDED_TRIMS
+
+
 # ---------------------------------------------------------------------------
 # Email sending
 # ---------------------------------------------------------------------------
@@ -369,8 +385,9 @@ def main() -> int:
             print(f"Failed to send error email: {email_err}", file=sys.stderr)
         return 1
 
-    html_table = render_html_table(listings)
-    count = len(listings)
+    filtered_listings = [listing for listing in listings if not is_excluded_trim(listing)]
+    html_table = render_html_table(filtered_listings)
+    count = len(filtered_listings)
 
     html_body = f"""
 <html>
@@ -389,7 +406,7 @@ def main() -> int:
     # Optional: upsert to Supabase for historical trend tracking
     if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
         try:
-            ingested = upsert_to_supabase(listings, today)
+            ingested = upsert_to_supabase(filtered_listings, today)
             print(f"Upserted {ingested} rows to Supabase", file=sys.stderr)
         except Exception as exc:
             print(f"Failed to upsert to Supabase: {exc}", file=sys.stderr)
