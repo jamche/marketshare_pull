@@ -15,6 +15,8 @@ from daily_passport_report import (
     SUPABASE_URL,
     extract_listing_row,
     fetch_used_honda_passports,
+    get_listing_miles,
+    get_listing_price,
     is_excluded_trim,
     parse_kilometers_value,
     render_html_table,
@@ -27,16 +29,20 @@ def build_supabase_rows(listings: List[Dict[str, Any]], fetched_date: str) -> Li
 
     for raw in listings:
         row = extract_listing_row(raw)
-        miles_value = raw.get("miles") or raw.get("odometer")
+        listing_key = raw.get("vin") or raw.get("id") or raw.get("listing_id")
+        miles_value = get_listing_miles(raw)
+        price_value = get_listing_price(raw)
         km_value = parse_kilometers_value(miles_value)
 
         rows.append(
             {
                 "vin": raw.get("vin"),
                 "source_id": raw.get("id") or raw.get("listing_id"),
+                "listing_key": listing_key,
                 "listing_url": row["vdp_url"],
                 "year": row["year"],
-                "price": raw.get("price") or raw.get("current_price"),
+                "model": row["model"],
+                "price": price_value,
                 "km": km_value,
                 "trim": row["trim"],
                 "body": row["body_type"],

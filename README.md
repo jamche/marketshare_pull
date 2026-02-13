@@ -1,6 +1,6 @@
-# Honda Passport Daily Report
+# Honda Passport & Pilot Daily Report
 
-Fetch daily used Honda Passport listings from the MarketCheck Cars API and email them as an HTML table via SMTP (Gmail/Outlook/Yahoo/Brevo/etc.).
+Fetch daily used Honda Passport and Pilot listings from the MarketCheck Cars API and email them as an HTML table via SMTP (Gmail/Outlook/Yahoo/Brevo/etc.).
 
 ## Prerequisites
 - Python 3.9+.
@@ -37,11 +37,21 @@ python daily_passport_report.py
 - The workflow at `.github/workflows/daily-passport-report.yml` runs daily via cron (`0 15 * * *`, ~10:00 ET). You can adjust the cron string or run manually via “Run workflow” in GitHub UI.
 
 ## Behavior
-- Fetches active used listings filtered to Honda Passport, year >= 2020 (adjust in script if needed).
+- Fetches active used listings filtered to Honda Passport/Pilot, year >= 2020 (adjust in script if needed).
 - Excludes Sport and TrailSport trims from the report.
-- Builds an HTML table (year, price, kilometers, trim, body, colors, dealer info, link).
+- Builds an HTML table (year, model, price, kilometers, trim, body, colors, dealer info, link).
+- Uses price/mileage fallbacks when primary fields are missing (e.g., `ref_price`, `ref_miles`).
 - Sends HTML email via SMTP (STARTTLS on 587 by default; SSL on 465 if configured).
 - On API error: sends an error email when SMTP is configured, otherwise logs to stderr.
+
+## Preview JSON (no email, no DB)
+```bash
+python preview_report_json.py > preview_report.json
+```
+
+## Supabase Schema Notes
+- Add a `model` column (text) and a `listing_key` column (text).
+- Use a unique index on `(listing_key, fetched_at)` so upserts work reliably.
 
 ## Testing Tips
 - Start with a small `MAX_LISTINGS` (e.g., 5) to verify email formatting.

@@ -29,7 +29,7 @@ MARKETCHECK_BASE_URL = "https://api.marketcheck.com/v2/search/car/active"
 
 # Search parameters
 TARGET_MAKE = "Honda"
-TARGET_MODEL = "Passport"
+TARGET_MODELS = ["Passport", "Pilot"]
 MIN_YEAR = 2020
 YEAR_LIST = os.environ.get("CAR_SEARCH_YEARS", "")  # optional comma-separated list, e.g., "2020,2021,2022"
 
@@ -83,7 +83,7 @@ def fetch_used_honda_passports() -> (List[Dict[str, Any]], int):
         "api_key": MARKETCHECK_API_KEY,
         "car_type": "used",
         "make": TARGET_MAKE,
-        "model": TARGET_MODEL,
+        "model": ",".join(TARGET_MODELS),
         "year": year_filter,
         "sort_by": "year",  # newest first so recent model years show up
         "sort_order": "desc",
@@ -159,6 +159,22 @@ def format_kilometers(value: Optional[float]) -> str:
         return "N/A"
 
 
+def get_listing_price(listing: Dict[str, Any]) -> Optional[float]:
+    for key in ("price", "current_price", "list_price", "msrp", "ref_price"):
+        value = listing.get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def get_listing_miles(listing: Dict[str, Any]) -> Optional[float]:
+    for key in ("miles", "odometer", "ref_miles"):
+        value = listing.get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
 def extract_listing_row(listing: Dict[str, Any]) -> Dict[str, Any]:
     """
     Normalize a MarketCheck listing dict into a flat row for display.
@@ -167,8 +183,9 @@ def extract_listing_row(listing: Dict[str, Any]) -> Dict[str, Any]:
     dealer = listing.get("dealer", {}) or {}
 
     year = listing.get("year") or build.get("year")
-    price = listing.get("price") or listing.get("current_price")
-    miles = listing.get("miles") or listing.get("odometer")
+    model = listing.get("model") or build.get("model") or ""
+    price = get_listing_price(listing)
+    miles = get_listing_miles(listing)
     trim = build.get("trim") or ""
     body_type = build.get("body_type") or ""
     exterior_color = listing.get("exterior_color") or build.get("exterior_color") or ""
@@ -183,6 +200,7 @@ def extract_listing_row(listing: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "year": year,
+        "model": model,
         "price": format_price(price),
         "km": format_kilometers(miles),
         "trim": trim,
@@ -212,7 +230,7 @@ def render_html_table(listings: List[Dict[str, Any]]) -> str:
     Render listings as a basic HTML table suitable for email.
     """
     if not listings:
-        return "<p>No used Honda Passport listings (2020+) found for today.</p>"
+        return "<p>No used Honda Passport/Pilot listings (2020+) found for today.</p>"
 
     rows_html = []
     for raw in listings[:MAX_LISTINGS]:
@@ -223,6 +241,7 @@ def render_html_table(listings: List[Dict[str, Any]]) -> str:
         rows_html.append(
             "<tr>"
             f"<td>{row['year'] or ''}</td>"
+            f"<td>{row['model'] or ''}</td>"
             f"<td>{row['price']}</td>"
             f"<td>{row['km']}</td>"
             f"<td>{row['trim'] or ''}</td>"
@@ -241,6 +260,7 @@ def render_html_table(listings: List[Dict[str, Any]]) -> str:
   <thead>
     <tr style="background-color: #f0f0f0;">
       <th>Year</th>
+      <th>Model</th>
       <th>Price</th>
       <th>KM</th>
       <th>Trim</th>
@@ -322,16 +342,20 @@ def upsert_to_supabase(listings: List[Dict[str, Any]], fetched_date: str) -> int
 
     for raw in listings:
         row = extract_listing_row(raw)
-        miles_value = raw.get("miles") or raw.get("odometer")
+        listing_key = raw.get("vin") or raw.get("id") or raw.get("listing_id")
+        miles_value = get_listing_miles(raw)
+        price_value = get_listing_price(raw)
         km_value = parse_kilometers_value(miles_value)
 
         rows.append(
             {
                 "vin": raw.get("vin"),
                 "source_id": raw.get("id") or raw.get("listing_id"),
+                "listing_key": listing_key,
                 "listing_url": row["vdp_url"],
                 "year": row["year"],
-                "price": raw.get("price") or raw.get("current_price"),
+                "model": row["model"],
+                "price": price_value,
                 "km": km_value,
                 "trim": row["trim"],
                 "body": row["body_type"],
@@ -357,7 +381,7 @@ def upsert_to_supabase(listings: List[Dict[str, Any]], fetched_date: str) -> int
     }
 
     resp = requests.post(
-        f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}",
+        f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?on_conflict=listing_key,fetched_at",
         json=rows,
         headers=headers,
         timeout=30,
@@ -380,7 +404,7 @@ def main() -> int:
     except Exception as exc:
         error_html = f"<p>Error fetching data from MarketCheck: {exc}</p>"
         try:
-            send_email(subject=f"[Car Report] ERROR fetching Honda Passport data ({today})", html_body=error_html)
+            send_email(subject=f"[Car Report] ERROR fetching Honda Passport/Pilot data ({today})", html_body=error_html)
         except Exception as email_err:
             print(f"Failed to send error email: {email_err}", file=sys.stderr)
         return 1
@@ -392,7 +416,7 @@ def main() -> int:
     html_body = f"""
 <html>
   <body>
-    <p>Daily used Honda Passport report (year >= {MIN_YEAR}).</p>
+    <p>Daily used Honda Passport/Pilot report (year >= {MIN_YEAR}).</p>
     <p>Date: {today}</p>
     <p>Total listings returned: {count} (of {total_found} found)</p>
     {html_table}
@@ -412,7 +436,7 @@ def main() -> int:
             print(f"Failed to upsert to Supabase: {exc}", file=sys.stderr)
 
     try:
-        send_email(subject=f"[Car Report] Used Honda Passport listings ({today})", html_body=html_body)
+        send_email(subject=f"[Car Report] Used Honda Passport/Pilot listings ({today})", html_body=html_body)
     except Exception as exc:
         print(f"Failed to send report email: {exc}", file=sys.stderr)
         return 1
