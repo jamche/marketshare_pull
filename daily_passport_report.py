@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 
 # Load .env for local development
 load_dotenv()
-
+# adding for github actions to continue 
 # ---------------------------------------------------------------------------
 # Configuration – set these in your environment or .env
 # ---------------------------------------------------------------------------
@@ -402,6 +402,7 @@ def main() -> int:
     try:
         listings, total_found = fetch_used_honda_passports()
     except Exception as exc:
+        print(f"Error fetching data from MarketCheck: {exc}", file=sys.stderr)
         error_html = f"<p>Error fetching data from MarketCheck: {exc}</p>"
         try:
             send_email(subject=f"[Car Report] ERROR fetching Honda Passport/Pilot data ({today})", html_body=error_html)
